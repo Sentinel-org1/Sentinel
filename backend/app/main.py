@@ -1,32 +1,68 @@
-"""FastAPI application initialization, middleware, and CORS setup."""
+"""
+backend/app/main.py
+--------------------
+FastAPI application — startup, middleware stack, router registration.
+"""
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import sentry_sdk
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.config import settings
+from app.middleware.auth_middleware import AuthMiddleware
 from app.middleware.logging_middleware import LoggingMiddleware
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Handle startup and shutdown events."""
-    # Startup
+    """Application lifespan — startup and graceful shutdown."""
+    # ── Startup ───────────────────────────────────────────────
     if settings.SENTRY_DSN:
-        sentry_sdk.init(dsn=settings.SENTRY_DSN, environment=settings.ENVIRONMENT)
-    yield
-    # Shutdown
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            environment=settings.ENVIRONMENT,
+            traces_sample_rate=0.1,
+            profiles_sample_rate=0.05,
+        )
+
+    yield  # app is running
+
+    # ── Shutdown ──────────────────────────────────────────────
+    from app.redis_client import close_redis
+    await close_redis()
 
 
 app = FastAPI(
     title="Sentinel API",
-    description="ML Model Monitoring Platform",
+    description="""
+## ML Model Observability Platform
+
+Real-time drift detection, anomaly monitoring, and alerting for
+production ML models.
+
+### Auth
+All `/api/*` endpoints require `Authorization: Bearer <access_token>`.
+Obtain a token via `POST /auth/login`.
+
+### Novel Features
+- **EWMA adaptive thresholds** — self-tuning control limits
+- **Confidence-weighted PSI** — catches weak covariate shifts
+- **Drift type classifier** — actionable drift categorisation
+- **STL decomposition** — seasonal noise suppression
+- **Calibration curves** — data-driven threshold selection
+""",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
-# CORS middleware
+# ── Middleware (applied outermost-first) ──────────────────────
+# 1. CORS — must be first so pre-flight OPTIONS requests pass through
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -34,24 +70,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Logging middleware
+# 2. Gzip for large payload responses (drift history, calibration curves)
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+# 3. Structured logging — logs every request with latency
 app.add_middleware(LoggingMiddleware)
+# 4. Auth — validates Bearer token on /api/* routes
+app.add_middleware(AuthMiddleware)
 
 
-@app.get("/health")
+# ── Health check (no auth required) ──────────────────────────
+@app.get("/health", tags=["ops"], include_in_schema=False)
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "ok"}
+    return {"status": "ok", "version": app.version}
 
 
-# Import and include routers
+# ── Routers ───────────────────────────────────────────────────
 from app.routers import auth, models, predictions, drift, alerts, calibration, websocket
 
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(models.router, prefix="/api/models", tags=["models"])
-app.include_router(predictions.router, prefix="/api/predictions", tags=["predictions"])
-app.include_router(drift.router, prefix="/api/drift", tags=["drift"])
-app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
-app.include_router(calibration.router, prefix="/api/models", tags=["calibration"])
-app.include_router(websocket.router, tags=["websocket"])
+app.include_router(auth.router,         prefix="/auth",              tags=["auth"])
+app.include_router(models.router,       prefix="/api/models",        tags=["models"])
+app.include_router(predictions.router,  prefix="/api/predictions",   tags=["predictions"])
+app.include_router(drift.router,        prefix="/api/drift",         tags=["drift"])
+app.include_router(alerts.router,       prefix="/api/alerts",        tags=["alerts"])
+app.include_router(calibration.router,  prefix="/api/models",        tags=["calibration"])
+app.include_router(websocket.router,                                  tags=["realtime"])
