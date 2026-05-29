@@ -66,7 +66,7 @@ class PSIDetector(BaseDetector):
         Returns:
             PSI score (0 = no shift, >0.25 = significant shift)
         """
-        if self.baseline_dist is None:
+        if self.baseline_dist is None or self.bin_edges is None:
             raise RuntimeError("Detector not fitted. Call fit() first.")
 
         if len(current) < self.min_samples:

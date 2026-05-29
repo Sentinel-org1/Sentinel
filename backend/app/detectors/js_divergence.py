@@ -63,7 +63,7 @@ class JSDetector(BaseDetector):
         Returns:
             JS divergence score (0 = identical, 1 = completely different)
         """
-        if self.baseline_dist is None:
+        if self.baseline_dist is None or self.categories is None:
             raise RuntimeError("Detector not fitted. Call fit() first.")
 
         if len(current) < self.min_samples:

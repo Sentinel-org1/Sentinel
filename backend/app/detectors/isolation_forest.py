@@ -62,7 +62,7 @@ class IForestDetector(BaseDetector):
         )
         self.iforest.fit(baseline)
 
-    def score(self, current: np.ndarray) -> float | np.ndarray:
+    def score(self, current: np.ndarray) -> float:
         """
         Compute anomaly scores for current predictions.
 
