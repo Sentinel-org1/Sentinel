@@ -24,6 +24,10 @@ class CalibrationCurve(Base):
     curve_data: Mapped[Optional[dict]] = mapped_column(JSON)
     # Recommended thresholds at common FP budgets (1%, 5%, 10%)
     threshold_recommendations: Mapped[Optional[dict]] = mapped_column(JSON)
+    # Youden-J optimal threshold from CalibrationReport.generate()
+    optimal_threshold: Mapped[Optional[float]] = mapped_column(Float)
+    # Area Under the ROC Curve — 0.5 = random, 1.0 = perfect
+    auc: Mapped[Optional[float]] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

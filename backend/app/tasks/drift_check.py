@@ -38,6 +38,7 @@ from app.models.drift_event import DriftEvent
 from app.models.drift_threshold import DriftThreshold
 from app.models.model_registry import ModelRegistry
 from app.models.prediction import Prediction
+from app.novelties.drift_classifier import DriftClassifier, DriftSignals
 from app.novelties.ewma_thresholds import EWMAThresholds
 from app.redis_client import get_redis
 from app.services.alert_service import AlertService
@@ -248,6 +249,55 @@ async def _run_drift_check(model_id: int) -> dict:
         alerts_created = 0
         drift_event_count = 0
 
+        # ── Build DriftSignals for drift type classification ──
+        # psi_scores: convert list of (feature_name, score) tuples → dict[str, float]
+        psi_score_dict: dict[str, float] = {
+            feat: score
+            for feat, score in drift_scores.get("psi", [])
+        }
+
+        # prediction_shift: absolute delta between current mean and 0.5 (placeholder
+        # baseline prediction mean — real baseline prediction mean is not stored yet).
+        prediction_shift = float(abs(np.mean(pred_scores) - 0.5))
+
+        # error_rate_delta: actuals pipeline not yet wired — always 0.0 for now.
+        error_rate_delta = 0.0
+
+        # feature_count_drifted: number of PSI-firing features (those that pushed
+        # "psi" into detectors_run — i.e. scored above 0.25).
+        feature_count_drifted = sum(
+            1 for _, score in drift_scores.get("psi", [])
+            if score > 0.25
+        )
+
+        # has_actuals: actuals pipeline not yet wired — always False for now.
+        has_actuals = False
+
+        # sequential_detector_fired: True if CUSUM or Page-Hinkley triggered.
+        sequential_detector_fired = (
+            "cusum" in detectors_run or "page_hinkley" in detectors_run
+        )
+
+        signals = DriftSignals(
+            psi_scores=psi_score_dict,
+            prediction_shift=prediction_shift,
+            error_rate_delta=error_rate_delta,
+            feature_count_drifted=feature_count_drifted,
+            has_actuals=has_actuals,
+            sequential_detector_fired=sequential_detector_fired,
+        )
+
+        classification = DriftClassifier().classify(signals)
+
+        logger.info(
+            "drift_type_classified",
+            model_id=model_id,
+            drift_type=classification.drift_type,
+            confidence=round(classification.confidence, 3),
+            recommended_action=classification.recommended_action,
+            signals_used=classification.signals_used,
+        )
+
         for detector_name in set(detectors_run):
             for feat_name, score in drift_scores.get(detector_name, []):
                 severity = "critical" if score > 0.5 else "warn"
@@ -257,7 +307,8 @@ async def _run_drift_check(model_id: int) -> dict:
                     metric_name=feat_name,
                     score=float(score),
                     threshold=0.25,
-                    drift_type="covariate_shift",
+                    # Use classifier output instead of hardcoded "covariate_shift"
+                    drift_type=classification.drift_type,
                     severity=severity,
                 )
                 db.add(drift_event)
@@ -279,6 +330,8 @@ async def _run_drift_check(model_id: int) -> dict:
                     json.dumps({
                         "model_id": model_id,
                         "detector": detector_name,
+                        "drift_type": classification.drift_type,
+                        "drift_confidence": round(classification.confidence, 3),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }),
                 )
