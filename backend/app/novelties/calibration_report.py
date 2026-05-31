@@ -302,9 +302,12 @@ class CalibrationReport:
         Returns:
             AUC value clamped to [0.0, 1.0]
         """
-        fp_rates = [p.fp_rate for p in points]
-        tp_rates = [p.tp_rate for p in points]
-        auc = float(abs(np.trapz(tp_rates, fp_rates)))
+        sorted_points = sorted(points, key=lambda p: p.fp_rate)
+
+        fp_rates = [p.fp_rate for p in sorted_points]
+        tp_rates = [p.tp_rate for p in sorted_points]
+
+        auc = float(np.trapz(tp_rates, fp_rates))
         return max(0.0, min(1.0, auc))
 
     def _check_ewma_agreement(
