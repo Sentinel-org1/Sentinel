@@ -307,6 +307,14 @@ class CalibrationReport:
         fp_rates = [p.fp_rate for p in sorted_points]
         tp_rates = [p.tp_rate for p in sorted_points]
 
+        # Ensure the canonical ROC endpoints (0, 0) and (1, 1) are present
+        if fp_rates[0] != 0.0 or tp_rates[0] != 0.0:
+            fp_rates.insert(0, 0.0)
+            tp_rates.insert(0, 0.0)
+        if fp_rates[-1] != 1.0 or tp_rates[-1] != 1.0:
+            fp_rates.append(1.0)
+            tp_rates.append(1.0)
+
         auc = float(np.trapz(tp_rates, fp_rates))
         return max(0.0, min(1.0, auc))
 
