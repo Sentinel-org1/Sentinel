@@ -15,12 +15,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
+from jose import JWTError
+
 from app.redis_client import get_redis
+from app.services.auth_service import auth_service
 
 logger = structlog.get_logger()
 
@@ -74,20 +78,37 @@ manager = ConnectionManager()
 async def websocket_drift_stream(
     websocket: WebSocket,
     model_id: int = Query(..., gt=0),
+    token: Optional[str] = Query(None),
 ):
     """
     WebSocket endpoint for real-time drift & alert streaming.
 
     Client subscribes to a model's drift and alert events.
     Server sends heartbeat pings every 30 seconds.
+    Requires a valid JWT access token as query parameter.
 
     Connection flow:
-      1. Client connects with model_id
-      2. Server accepts and subscribes to Redis channels
-      3. Server forwards Redis messages to WebSocket
-      4. Server sends heartbeat pings
-      5. On disconnect, server unsubscribes and closes connection
+      1. Client connects with model_id and token
+      2. Server validates JWT token
+      3. Server accepts and subscribes to Redis channels
+      4. Server forwards Redis messages to WebSocket
+      5. Server sends heartbeat pings
+      6. On disconnect, server unsubscribes and closes connection
     """
+    # ── Validate JWT token ──────────────────────────────────
+    if not token:
+        await websocket.close(code=4001, reason="Missing authentication token")
+        logger.warning("websocket_auth_missing", model_id=model_id)
+        return
+
+    try:
+        user_id = auth_service.get_user_id_from_token(token)
+    except (JWTError, Exception) as exc:
+        await websocket.close(code=4001, reason="Invalid or expired token")
+        logger.warning("websocket_auth_failed", model_id=model_id, error=str(exc))
+        return
+
+    logger.info("websocket_auth_success", model_id=model_id, user_id=user_id)
     await manager.connect(websocket, model_id)
 
     redis = await get_redis()
@@ -123,7 +144,7 @@ async def websocket_drift_stream(
                     try:
                         payload = json.loads(message["data"])
                         # Add server-side timestamp
-                        payload["timestamp_received"] = asyncio.get_event_loop().time()
+                        payload["timestamp_received"] = datetime.now(timezone.utc).isoformat()
 
                         await manager.broadcast_to_model(model_id, payload)
                     except Exception as exc:
@@ -141,7 +162,7 @@ async def websocket_drift_stream(
                     await websocket.send_json({
                         "type": "ping",
                         "model_id": model_id,
-                        "timestamp": asyncio.get_event_loop().time(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
                 except Exception:
                     raise

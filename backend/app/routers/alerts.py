@@ -76,6 +76,7 @@ async def list_alerts(
     alerts = await AlertService.get_open_alerts(
         db,
         model_id=model_id,
+        status_filter=status_filter,
         limit=limit,
         offset=offset,
     )

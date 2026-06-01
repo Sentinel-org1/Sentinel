@@ -218,22 +218,31 @@ class AlertService:
     async def get_open_alerts(
         db: AsyncSession,
         model_id: Optional[int] = None,
+        status_filter: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Alert]:
         """
-        Fetch open/acknowledged alerts, optionally filtered by model.
+        Fetch alerts, optionally filtered by model and/or status.
 
         Args:
             db: Database session
             model_id: Optional model ID filter
+            status_filter: Optional status filter (open, acknowledged, resolved).
+                           If None, defaults to open + acknowledged.
             limit: Max results
             offset: Pagination offset
 
         Returns:
             List of Alert objects
         """
-        query = select(Alert).filter(Alert.status.in_(["open", "acknowledged"]))
+        query = select(Alert)
+
+        if status_filter:
+            query = query.filter(Alert.status == status_filter)
+        else:
+            # Default: show open + acknowledged (exclude resolved)
+            query = query.filter(Alert.status.in_(["open", "acknowledged"]))
 
         if model_id:
             query = query.filter(Alert.model_id == model_id)

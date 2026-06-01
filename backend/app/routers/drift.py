@@ -86,10 +86,14 @@ async def list_drift_events(
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
     query = query.filter(DriftEvent.detected_at >= cutoff_date)
 
-    # Count total
-    total = await db.scalar(
-        select(func.count(DriftEvent.id)).select_from(DriftEvent)
-    )
+    # Count total (apply same filters as the events query)
+    count_query = select(func.count(DriftEvent.id))
+    if model_id:
+        count_query = count_query.filter(DriftEvent.model_id == model_id)
+    if detector:
+        count_query = count_query.filter(DriftEvent.detector == detector)
+    count_query = count_query.filter(DriftEvent.detected_at >= cutoff_date)
+    total = await db.scalar(count_query)
 
     # Paginate and order
     query = query.order_by(desc(DriftEvent.detected_at)).limit(limit).offset(offset)

@@ -20,6 +20,8 @@ class DriftThreshold(Base):
     ewma_std: Mapped[Optional[float]] = mapped_column(Float)
     # Last N threshold values for charting
     history: Mapped[Optional[list]] = mapped_column(JSON)
+    # Latest STL decomposition results (trend, seasonal, residual arrays)
+    stl_decomposition: Mapped[Optional[dict]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sentinel — ML Model Observability</title>
+    <script>
+      window.addEventListener('error', function(e) {
+        var msg = e.message + ' at ' + e.filename + ':' + e.lineno + ':' + e.colno;
+        fetch('/api/models/?client_error=' + encodeURIComponent(msg)).catch(function(){});
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var msg = 'Promise rejection: ' + (e.reason ? (e.reason.message || String(e.reason)) : 'unknown');
+        if (e.reason && e.reason.stack) {
+          msg += '\nStack: ' + e.reason.stack;
+        }
+        fetch('/api/models/?client_error=' + encodeURIComponent(msg)).catch(function(){});
+      });
+    </script>
     <meta name="description" content="Real-time drift detection, anomaly monitoring, and alerting for production ML models." />
   </head>
   <body>

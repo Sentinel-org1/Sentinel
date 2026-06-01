@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # ── API ────────────────────────────────────────────────────
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
-    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
     # ── Drift detection tuning ─────────────────────────────────
     EWMA_LAMBDA: float = 0.2          # EWMA smoothing factor (Novel #1)

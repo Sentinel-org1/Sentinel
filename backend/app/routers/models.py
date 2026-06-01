@@ -235,3 +235,37 @@ async def get_baseline(
         feature_stats=baseline.feature_stats,
         created_at=baseline.created_at.isoformat(),
     )
+
+
+@router.get(
+    "/{model_id}/thresholds",
+    summary="Retrieve EWMA thresholds history and STL decompositions",
+)
+async def get_thresholds(
+    model_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.drift_threshold import DriftThreshold
+    
+    await _get_model_or_404(db, model_id)
+    
+    result = await db.scalars(
+        select(DriftThreshold)
+        .filter(DriftThreshold.model_id == model_id)
+    )
+    thresholds = result.all()
+    
+    return [
+        {
+            "id": t.id,
+            "detector": t.detector,
+            "metric_name": t.metric_name,
+            "ewma_threshold": t.ewma_threshold,
+            "ewma_mean": t.ewma_mean,
+            "ewma_std": t.ewma_std,
+            "history": json.loads(t.history) if isinstance(t.history, str) else t.history,
+            "stl_decomposition": t.stl_decomposition,
+            "updated_at": t.updated_at.isoformat(),
+        }
+        for t in thresholds
+    ]
