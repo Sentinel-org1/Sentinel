@@ -100,7 +100,7 @@ def test_fit_and_score_basic():
             len(result.per_bin_psi) == det.n_bins and
             len(result.per_bin_cw_psi) == det.n_bins)
     _report("current_weights length", len(result.current_weights) == det.n_bins)
-    return result
+
 
 
 def test_compare_both_metrics():

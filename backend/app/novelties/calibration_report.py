@@ -94,9 +94,9 @@ class CalibrationReport:
         baseline: np.ndarray,
         detector_class: type,
         n_runs: int = DEFAULT_N_RUNS,
-        shift_magnitudes: list[float] = DEFAULT_SHIFT_MAGNITUDES,
-        scale_factors: list[float] = DEFAULT_SCALE_FACTORS,
-        thresholds: np.ndarray = DEFAULT_THRESHOLDS,
+        shift_magnitudes: Optional[list[float]] = None,
+        scale_factors: Optional[list[float]] = None,
+        thresholds: Optional[np.ndarray] = None,
         batch_size: Optional[int] = None,
         random_seed: int = DEFAULT_RANDOM_SEED,
         ewma_state: Optional[EWMAState] = None,
@@ -118,6 +118,14 @@ class CalibrationReport:
         Returns:
             CalibrationResult with ROC curve, optimal threshold, AUC, and distributions
         """
+        # ── Step 0: Apply mutable-safe defaults ────────────────────────────
+        if shift_magnitudes is None:
+            shift_magnitudes = list(DEFAULT_SHIFT_MAGNITUDES)
+        if scale_factors is None:
+            scale_factors = list(DEFAULT_SCALE_FACTORS)
+        if thresholds is None:
+            thresholds = DEFAULT_THRESHOLDS.copy()
+
         # ── Step 1: Validate inputs ─────────────────────────────────────────
         if len(baseline) < MIN_BASELINE_SAMPLES:
             raise ValueError(
@@ -340,4 +348,4 @@ class CalibrationReport:
         return (
             abs(ewma_state.ewma_threshold - optimal_threshold)
             <= EWMA_AGREEMENT_TOLERANCE
-        )
+        )
