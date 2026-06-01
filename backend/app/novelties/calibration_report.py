@@ -290,9 +290,9 @@ class CalibrationReport:
             youden_j = tp_rate - fp_rate
             points.append(CalibrationPoint(
                 threshold=float(t),
-                tp_rate=float(tp_rate),
-                fp_rate=float(fp_rate),
-                youden_j=float(youden_j),
+                tp_rate=tp_rate,
+                fp_rate=fp_rate,
+                youden_j=youden_j,
             ))
 
         return points
