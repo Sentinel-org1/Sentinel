@@ -80,8 +80,11 @@ async def list_alerts(
         limit=limit,
         offset=offset,
     )
-
-    total = len(alerts)  # Simplified count for demo
+    total = await AlertService.count_alerts(
+        db,
+        model_id=model_id,
+        status_filter=status_filter,
+    )
 
     return AlertListResponse(
         total=total,

@@ -7,10 +7,11 @@ export default function useWebSocket(modelId: number | null) {
   const addAlert = useStore((state) => state.addAlert);
   const setWsStatus = useStore((state) => state.setWsStatus);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<any>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
 
   useEffect(() => {
+    let shouldReconnect = true;
     if (!modelId || !token) {
       if (wsRef.current) {
         wsRef.current.close();
@@ -87,6 +88,10 @@ export default function useWebSocket(modelId: number | null) {
         wsRef.current = null;
         console.log(`WebSocket closed: ${event.reason} (code ${event.code})`);
 
+        if (!shouldReconnect) {
+          return;
+        }
+
         // Close code 4001 indicates auth failure — do not auto-reconnect
         if (event.code === 4001) {
           console.error('WebSocket authentication failed.');
@@ -112,11 +117,13 @@ export default function useWebSocket(modelId: number | null) {
     connect();
 
     return () => {
+      shouldReconnect = false;
       if (wsRef.current) {
         wsRef.current.close();
       }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
     };
   }, [modelId, token, addDriftEvent, addAlert, setWsStatus]);

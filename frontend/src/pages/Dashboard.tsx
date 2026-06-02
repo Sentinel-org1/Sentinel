@@ -6,7 +6,25 @@ import DriftEventTimeline from '../components/DriftEventTimeline';
 import Card from '../components/ui/Card';
 import Spinner from '../components/ui/Spinner';
 import useAlerts from '../hooks/useAlerts';
-import useDriftData from '../hooks/useDriftData';
+
+function getErrorDetail(error: unknown, fallback: string): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'response' in error &&
+    typeof error.response === 'object' &&
+    error.response !== null &&
+    'data' in error.response &&
+    typeof error.response.data === 'object' &&
+    error.response.data !== null &&
+    'detail' in error.response.data &&
+    typeof error.response.data.detail === 'string'
+  ) {
+    return error.response.data.detail;
+  }
+
+  return fallback;
+}
 
 export default function Dashboard() {
   const models = useStore((state) => state.models);
@@ -18,6 +36,7 @@ export default function Dashboard() {
 
   const driftEvents = useStore((state) => state.driftEvents);
   const setDriftEvents = useStore((state) => state.setDriftEvents);
+  const wsStatus = useStore((state) => state.wsStatus);
 
   const { alerts, isLoading: isLoadingAlerts } = useAlerts();
 
@@ -29,9 +48,9 @@ export default function Dashboard() {
       try {
         const response = await client.get('/api/models/');
         setModels(response.data);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Failed to fetch models:', err);
-        setModelsError(err.response?.data?.detail || 'Failed to load registered models');
+        setModelsError(getErrorDetail(err, 'Failed to load registered models'));
       } finally {
         setModelsLoading(false);
       }
@@ -72,12 +91,9 @@ export default function Dashboard() {
     );
   }
 
-  const wsStatus = useStore((state) => state.wsStatus);
-
   // Count active warnings
   const activeAlerts = alerts.filter((a) => a.status === 'open');
   const criticalAlertsCount = activeAlerts.filter((a) => a.severity === 'critical').length;
-  const warningAlertsCount = activeAlerts.filter((a) => a.severity === 'warn').length;
 
   const wsDisplayInfo = {
     connected: { label: 'CONNECTED', color: 'text-emerald-450', bg: 'bg-emerald-500/10', border: 'border-emerald-500/25' },

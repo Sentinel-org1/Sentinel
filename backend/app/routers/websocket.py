@@ -47,7 +47,7 @@ class ConnectionManager:
 
     async def disconnect(self, websocket: WebSocket, model_id: int):
         """Remove connection from tracking."""
-        if model_id in self.active_connections:
+        if model_id in self.active_connections and websocket in self.active_connections[model_id]:
             self.active_connections[model_id].remove(websocket)
             if not self.active_connections[model_id]:
                 del self.active_connections[model_id]
@@ -117,10 +117,11 @@ async def websocket_drift_stream(
     # Subscribe to drift channels (one per detector)
     drift_channels = [
         f"sentinel:drift:{model_id}:psi",
-        f"sentinel:drift:{model_id}:ks",
+        f"sentinel:drift:{model_id}:ks_test",
         f"sentinel:drift:{model_id}:cusum",
         f"sentinel:drift:{model_id}:page_hinkley",
-        f"sentinel:drift:{model_id}:js_divergence",
+        f"sentinel:drift:{model_id}:isolation_forest",
+        f"sentinel:drift:{model_id}:shap",
     ]
 
     # Subscribe to alerts channel

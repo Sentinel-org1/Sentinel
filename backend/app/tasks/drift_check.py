@@ -32,7 +32,6 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.detectors.cusum import CUSUMDetector
 from app.detectors.isolation_forest import IForestDetector
-from app.detectors.js_divergence import JSDetector
 from app.detectors.ks_test import KSDetector
 from app.detectors.page_hinkley import PageHinkleyDetector
 from app.detectors.psi import PSIDetector
@@ -204,7 +203,7 @@ async def _run_drift_check(model_id: int) -> dict:
         baseline_pred_mean = _get_baseline_prediction_mean(baseline_stats)
 
         # ── 4. Run detectors ──────────────────────────────────
-        detectors_run: list[str] = []
+        triggered_scores: list[tuple[str, str, float, float]] = []
         drift_scores: dict[str, list[tuple[str, float]]] = {}
 
         ewma_mgr = EWMAThresholds(
@@ -229,8 +228,9 @@ async def _run_drift_check(model_id: int) -> dict:
                 det.fit(baseline_arr, feature_name=feat_name)
                 score = det.score(current_arr)
                 drift_scores.setdefault("psi", []).append((feat_name, score))
-                if score > 0.25:
-                    detectors_run.append("psi")
+                threshold = 0.25
+                if score > threshold:
+                    triggered_scores.append(("psi", feat_name, score, threshold))
             except Exception as exc:
                 logger.warning("psi_failed", feature=feat_name, error=str(exc))
 
@@ -240,8 +240,9 @@ async def _run_drift_check(model_id: int) -> dict:
                 det.fit(baseline_arr, feature_name=feat_name)
                 score = det.score(current_arr)
                 drift_scores.setdefault("ks_test", []).append((feat_name, score))
-                if score > 0.2:
-                    detectors_run.append("ks_test")
+                threshold = 0.2
+                if score > threshold:
+                    triggered_scores.append(("ks_test", feat_name, score, threshold))
             except Exception as exc:
                 logger.warning("ks_failed", feature=feat_name, error=str(exc))
 
@@ -262,7 +263,7 @@ async def _run_drift_check(model_id: int) -> dict:
             score = det.score(pred_scores)
             drift_scores.setdefault("cusum", []).append(("prediction", score))
             if det.threshold and score > det.threshold:
-                detectors_run.append("cusum")
+                triggered_scores.append(("cusum", "prediction", score, float(det.threshold)))
         except Exception as exc:
             logger.warning("cusum_failed", error=str(exc))
 
@@ -273,7 +274,7 @@ async def _run_drift_check(model_id: int) -> dict:
             score = det.score(pred_scores)
             drift_scores.setdefault("page_hinkley", []).append(("prediction", score))
             if det.threshold and score > det.threshold:
-                detectors_run.append("page_hinkley")
+                triggered_scores.append(("page_hinkley", "prediction", score, float(det.threshold)))
         except Exception as exc:
             logger.warning("page_hinkley_failed", error=str(exc))
 
@@ -313,8 +314,11 @@ async def _run_drift_check(model_id: int) -> dict:
                             drift_scores.setdefault("isolation_forest", []).append(
                                 ("multivariate", score)
                             )
-                            if score < -0.2:
-                                detectors_run.append("isolation_forest")
+                            threshold = -0.2
+                            if score < threshold:
+                                triggered_scores.append(
+                                    ("isolation_forest", "multivariate", score, threshold)
+                                )
         except Exception as exc:
             logger.warning("iforest_failed", error=str(exc))
 
@@ -384,6 +388,7 @@ async def _run_drift_check(model_id: int) -> dict:
         # has_actuals: actuals pipeline not yet wired — always False for now.
         has_actuals = False
 
+        detectors_run = {detector for detector, _, _, _ in triggered_scores}
         sequential_detector_fired = (
             "cusum" in detectors_run or "page_hinkley" in detectors_run
         )
@@ -408,82 +413,109 @@ async def _run_drift_check(model_id: int) -> dict:
             signals_used=classification.signals_used,
         )
 
-        for detector_name in set(detectors_run):
-            for feat_name, score in drift_scores.get(detector_name, []):
-                severity = "critical" if score > 0.5 else "warn"
-                drift_event = DriftEvent(
-                    model_id=model_id,
-                    detector=detector_name,
-                    metric_name=feat_name,
-                    score=float(score),
-                    threshold=0.25,
-                    drift_type=classification.drift_type,
-                    severity=severity,
-                )
-                db.add(drift_event)
-                await db.flush()
-                drift_event_count += 1
+        drift_payloads: list[tuple[str, dict]] = []
+        alert_payloads: list[dict] = []
+
+        for detector_name, feat_name, score, threshold in triggered_scores:
+            severity = "critical" if abs(score) > 0.5 else "warn"
+            drift_event = DriftEvent(
+                model_id=model_id,
+                detector=detector_name,
+                metric_name=feat_name,
+                score=float(score),
+                threshold=float(threshold),
+                drift_type=classification.drift_type,
+                severity=severity,
+            )
+            db.add(drift_event)
+            await db.flush()
+            drift_event_count += 1
+
+            drift_payloads.append((
+                detector_name,
+                {
+                    "id": drift_event.id,
+                    "model_id": model_id,
+                    "detector": detector_name,
+                    "metric_name": feat_name,
+                    "score": float(score),
+                    "threshold": float(threshold),
+                    "drift_type": classification.drift_type,
+                    "severity": severity,
+                    "detected_at": drift_event.detected_at.isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            ))
 
                 # ── STL alert suppression check ──
-                threshold_record = await db.scalar(
-                    select(DriftThreshold).filter(
-                        DriftThreshold.model_id == model_id,
-                        DriftThreshold.detector == detector_name,
-                        DriftThreshold.metric_name == feat_name,
-                    ).limit(1)
+            threshold_record = await db.scalar(
+                select(DriftThreshold).filter(
+                    DriftThreshold.model_id == model_id,
+                    DriftThreshold.detector == detector_name,
+                    DriftThreshold.metric_name == feat_name,
+                ).limit(1)
+            )
+
+            should_suppress = False
+            if threshold_record is not None:
+                score_series = _extract_score_history(threshold_record)
+                ewma_thresh = threshold_record.ewma_threshold or threshold
+                should_suppress = _stl_suppressor.should_suppress_alert(
+                    np.array(score_series) if score_series else np.array([score]),
+                    raw_score=score,
+                    threshold=ewma_thresh,
                 )
 
-                should_suppress = False
-                if threshold_record is not None:
-                    score_series = _extract_score_history(threshold_record)
-                    ewma_thresh = threshold_record.ewma_threshold or 0.25
-                    should_suppress = _stl_suppressor.should_suppress_alert(
-                        np.array(score_series) if score_series else np.array([score]),
-                        raw_score=score,
-                        threshold=ewma_thresh,
-                    )
-
-                if should_suppress:
-                    alerts_suppressed += 1
-                    logger.info(
-                        "alert_suppressed_by_stl",
-                        model_id=model_id,
-                        detector=detector_name,
-                        feature=feat_name,
-                        score=round(score, 6),
-                    )
-                else:
-                    alert = await AlertService.create_alert(db, drift_event.id, model_id, severity)
-                    if alert:
-                        alerts_created += 1
+            if should_suppress:
+                alerts_suppressed += 1
+                logger.info(
+                    "alert_suppressed_by_stl",
+                    model_id=model_id,
+                    detector=detector_name,
+                    feature=feat_name,
+                    score=round(score, 6),
+                )
+            else:
+                alert = await AlertService.create_alert(db, drift_event.id, model_id, severity)
+                if alert:
+                    alerts_created += 1
+                    alert_payloads.append({
+                        "id": alert.id,
+                        "drift_event_id": drift_event.id,
+                        "model_id": model_id,
+                        "severity": alert.severity,
+                        "status": alert.status,
+                        "suppressed": alert.suppressed,
+                        "created_at": alert.created_at.isoformat(),
+                        "updated_at": alert.updated_at.isoformat(),
+                    })
 
                 # ── Enqueue async SHAP attribution ──
-                from app.tasks.shap_compute import compute_shap
-                compute_shap.apply_async(
-                    args=[drift_event.id],
-                    queue="shap",
-                )
+            from app.tasks.shap_compute import compute_shap
+            compute_shap.apply_async(
+                args=[drift_event.id],
+                queue="shap",
+            )
 
         await db.commit()
 
         # ── 7. Publish to Redis pub/sub ───────────────────────
-        if detectors_run:
+        if drift_payloads or alert_payloads:
             redis = await get_redis()
-            for detector_name in set(detectors_run):
+            for detector_name, payload in drift_payloads:
                 await redis.publish(
                     f"sentinel:drift:{model_id}:{detector_name}",
-                    json.dumps({
-                        "model_id": model_id,
-                        "detector": detector_name,
-                        "drift_type": classification.drift_type,
-                        "drift_confidence": round(classification.confidence, 3),
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    }),
+                    json.dumps(payload),
+                )
+            for payload in alert_payloads:
+                await redis.publish(
+                    f"sentinel:alerts:{model_id}",
+                    json.dumps(payload),
                 )
 
         result.update(
             status="success",
-            detectors_run=list(set(detectors_run)),
+            detectors_run=sorted(detectors_run),
             drift_events=drift_event_count,
             alerts_created=alerts_created,
             alerts_suppressed=alerts_suppressed,

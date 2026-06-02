@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import structlog
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.alert import Alert
@@ -250,3 +250,22 @@ class AlertService:
         query = query.order_by(desc(Alert.created_at)).limit(limit).offset(offset)
 
         return (await db.scalars(query)).all()
+
+    @staticmethod
+    async def count_alerts(
+        db: AsyncSession,
+        model_id: Optional[int] = None,
+        status_filter: Optional[str] = None,
+    ) -> int:
+        """Count alerts using the same filters as get_open_alerts."""
+        query = select(func.count(Alert.id))
+
+        if status_filter:
+            query = query.filter(Alert.status == status_filter)
+        else:
+            query = query.filter(Alert.status.in_(["open", "acknowledged"]))
+
+        if model_id:
+            query = query.filter(Alert.model_id == model_id)
+
+        return int(await db.scalar(query) or 0)

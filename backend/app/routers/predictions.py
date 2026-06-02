@@ -13,12 +13,12 @@ Flow:
 from __future__ import annotations
 
 import time
-from typing import Annotated
+from collections import defaultdict
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -89,50 +89,69 @@ async def ingest_predictions(
         )
         for item in body.predictions
     ]
-    db.add_all(rows)
-    await db.commit()
+    by_model: dict[int, list[PredictionItem]] = defaultdict(list)
+    for item in body.predictions:
+        by_model[item.model_id].append(item)
 
     # ── 2. Publish to Redis Streams ────────────────────────────
     redis = await get_redis()
     published = 0
 
-    # Group by model_id for efficient stream publishing
-    from collections import defaultdict
-    by_model: dict[int, list[PredictionItem]] = defaultdict(list)
-    for item in body.predictions:
-        by_model[item.model_id].append(item)
+    stream_lengths_before: dict[int, int] = {}
+    stream_lengths_after: dict[int, int] = {}
 
-    async with redis.pipeline() as pipe:
-        for model_id, items in by_model.items():
+    try:
+        db.add_all(rows)
+        await db.flush()
+
+        for model_id in by_model:
             stream_key = _STREAM_KEY.format(model_id=model_id)
-            for item in items:
-                await pipe.xadd(
-                    stream_key,
-                    {
-                        "model_id": str(item.model_id),
-                        "prediction": str(item.prediction),
-                        "confidence": str(item.confidence or ""),
-                        # Send a compact feature repr; full payload is in Postgres
-                        "n_features": str(len(item.features)),
-                    },
-                    maxlen=_STREAM_MAXLEN,
-                    approximate=True,
-                )
-                published += 1
-        await pipe.execute()
+            stream_lengths_before[model_id] = await redis.xlen(stream_key)
+
+        async with redis.pipeline() as pipe:
+            for model_id, items in by_model.items():
+                stream_key = _STREAM_KEY.format(model_id=model_id)
+                for item in items:
+                    await pipe.xadd(
+                        stream_key,
+                        {
+                            "model_id": str(item.model_id),
+                            "prediction": str(item.prediction),
+                            "confidence": "" if item.confidence is None else str(item.confidence),
+                            # Send a compact feature repr; full payload is in Postgres
+                            "n_features": str(len(item.features)),
+                        },
+                        maxlen=_STREAM_MAXLEN,
+                        approximate=True,
+                    )
+                    published += 1
+            await pipe.execute()
+
+        for model_id in by_model:
+            stream_key = _STREAM_KEY.format(model_id=model_id)
+            stream_lengths_after[model_id] = await redis.xlen(stream_key)
+
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("prediction_ingest_failed", error=str(exc), user_id=user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Prediction ingest failed before commit",
+        ) from exc
 
     # ── 3. Check if we should trigger a drift check ────────────
     for model_id, items in by_model.items():
-        stream_key = _STREAM_KEY.format(model_id=model_id)
-        stream_len = await redis.xlen(stream_key)
-        if stream_len >= _BATCH_DRIFT_TRIGGER:
+        before_len = stream_lengths_before.get(model_id, 0)
+        after_len = stream_lengths_after.get(model_id, before_len + len(items))
+        if before_len < _BATCH_DRIFT_TRIGGER <= after_len:
             from app.tasks.drift_check import check_drift
             check_drift.apply_async(
                 kwargs={"model_id": model_id},
                 queue="drift",
                 countdown=0,
             )
-            logger.info("drift_check_enqueued", model_id=model_id, stream_len=stream_len)
+            logger.info("drift_check_enqueued", model_id=model_id, stream_len=after_len)
 
     duration_ms = (time.perf_counter() - t0) * 1000
     logger.info(

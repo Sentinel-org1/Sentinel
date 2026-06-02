@@ -28,7 +28,7 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinel"]
       interval: 5s
@@ -53,7 +53,7 @@ services:
   # ── FastAPI backend ────────────────────────────────────────
   backend:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
       target: runtime
     restart: unless-stopped
@@ -62,7 +62,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app          # hot-reload in dev
+      - ../backend:/app          # hot-reload in dev
       - model_artifacts:/app/models
     depends_on:
       postgres:
@@ -81,14 +81,14 @@ services:
   # ── Celery worker ──────────────────────────────────────────
   celery-worker:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
       target: runtime
     restart: unless-stopped
     environment:
       <<: *backend-env
     volumes:
-      - ./backend:/app
+      - ../backend:/app
       - model_artifacts:/app/models
     depends_on:
       postgres:
@@ -100,14 +100,14 @@ services:
   # ── Celery Beat (periodic tasks) ───────────────────────────
   celery-beat:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
       target: runtime
     restart: unless-stopped
     environment:
       <<: *backend-env
     volumes:
-      - ./backend:/app
+      - ../backend:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,13 +118,13 @@ services:
   # ── React frontend ─────────────────────────────────────────
   frontend:
     build:
-      context: ./frontend
+      context: ../frontend
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "3000:3000"
     volumes:
-      - ./frontend:/app
+      - ../frontend:/app
       - /app/node_modules       # prevent host node_modules override
     environment:
       VITE_API_BASE_URL: http://localhost:8000
