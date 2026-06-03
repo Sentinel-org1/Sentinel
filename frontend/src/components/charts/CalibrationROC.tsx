@@ -51,24 +51,41 @@ export default function CalibrationROC({
       )
     : null;
 
-  const scatterData = optimalPoint ? [{
+  interface ScatterDataPoint {
+    x: number;
+    y: number;
+    threshold: number;
+    youden_j: number;
+  }
+
+  const scatterData: ScatterDataPoint[] = optimalPoint ? [{
     x: optimalPoint.fp_rate,
     y: optimalPoint.tp_rate,
     threshold: optimalPoint.threshold,
     youden_j: optimalPoint.youden_j,
   }] : [];
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  interface TooltipPayload {
+    payload?: CalibrationPoint | ScatterDataPoint;
+    value?: number;
+  }
+
+  interface CustomTooltipProps {
+    active?: boolean;
+    payload?: TooltipPayload[];
+  }
+
+  const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
         <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 p-2.5 rounded-lg shadow-xl text-xs space-y-1">
           <p className="font-semibold text-slate-350">Point Stats</p>
-          <p className="text-slate-300">Threshold: <span className="font-semibold">{data.threshold !== undefined ? data.threshold.toFixed(4) : (payload[0].value !== undefined ? payload[0].value.toFixed(4) : '')}</span></p>
-          <p className="text-blue-400">TPR (Sensitivity): {data.tp_rate !== undefined ? data.tp_rate.toFixed(3) : (data.y !== undefined ? data.y.toFixed(3) : '')}</p>
-          <p className="text-amber-400">FPR (1 - Specificity): {data.fp_rate !== undefined ? data.fp_rate.toFixed(3) : (data.x !== undefined ? data.x.toFixed(3) : '')}</p>
-          {data.youden_j !== undefined && (
-            <p className="text-emerald-400">Youden's J: {data.youden_j.toFixed(3)}</p>
+          <p className="text-slate-300">Threshold: <span className="font-semibold">{data && 'threshold' in data ? (data.threshold as number).toFixed(4) : (payload[0].value !== undefined ? payload[0].value.toFixed(4) : '')}</span></p>
+          <p className="text-blue-400">TPR (Sensitivity): {data && ('tp_rate' in data ? (data.tp_rate as number).toFixed(3) : 'y' in data ? (data.y as number).toFixed(3) : '')}</p>
+          <p className="text-amber-400">FPR (1 - Specificity): {data && ('fp_rate' in data ? (data.fp_rate as number).toFixed(3) : 'x' in data ? (data.x as number).toFixed(3) : '')}</p>
+          {data && 'youden_j' in data && (
+            <p className="text-emerald-400">Youden's J: {(data.youden_j as number).toFixed(3)}</p>
           )}
         </div>
       );
@@ -154,8 +171,8 @@ export default function CalibrationROC({
                 name="Optimal Threshold"
                 data={scatterData}
                 fill="#10b981"
-                shape={(props: any) => {
-                  const { cx, cy } = props;
+                shape={(props: unknown) => {
+                  const { cx, cy } = props as { cx: number; cy: number };
                   return (
                     <g key="optimal-marker">
                       <circle cx={cx} cy={cy} r={8} fill="#10b981" fillOpacity={0.3} className="animate-ping" />
