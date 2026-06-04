@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import client from '../api/client';
 import { useStore, Model } from '../store';
@@ -23,23 +23,24 @@ export default function Models() {
   const [newTaskType, setNewTaskType] = useState<'classification' | 'regression' | 'ranking'>('classification');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const response = await client.get('/api/models/');
       setModels(response.data);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to fetch models:', err);
-      setError(err.response?.data?.detail || 'Failed to fetch registered models');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to fetch registered models';
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
-  };
+  }, [setModels, setLoading, setError]);
 
   useEffect(() => {
     fetchModels();
-  }, []);
+  }, [fetchModels]);
 
   const handleCreateModel = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,9 +56,10 @@ export default function Models() {
       setModels([response.data, ...models]);
       setNewName('');
       setShowAddForm(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to create model:', err);
-      alert(err.response?.data?.detail || 'Failed to create model registry entry');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to create model registry entry';
+      alert(errorMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -153,7 +155,7 @@ export default function Models() {
               <select
                 value={newTaskType}
                 title="Prediction Task Type"
-                onChange={(e) => setNewTaskType(e.target.value as any)}
+                onChange={(e) => setNewTaskType(e.target.value as 'classification' | 'regression' | 'ranking')}
                 className="w-full bg-slate-950/60 border border-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-lg px-4 py-2.5 text-sm text-slate-200 outline-none transition-all"
               >
                 <option value="classification">Classification (Binary / Multi)</option>

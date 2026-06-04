@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import client from '../api/client';
-import { useStore, Model, DriftEvent } from '../store';
+import { useStore, Model } from '../store';
 import useWebSocket from '../hooks/useWebSocket';
 import useDriftData from '../hooks/useDriftData';
 import PSITimeSeries from '../components/charts/PSITimeSeries';
@@ -18,7 +18,6 @@ export default function ModelDetail() {
   const modelId = id ? parseInt(id, 10) : null;
 
   // Global state
-  const selectedModelId = useStore((state) => state.selectedModelId);
   const setSelectedModelId = useStore((state) => state.setSelectedModelId);
   const [model, setModel] = useState<Model | null>(null);
   const [isLoadingModel, setIsLoadingModel] = useState(true);
@@ -31,10 +30,32 @@ export default function ModelDetail() {
   useWebSocket(modelId);
 
   // Drift data hook
-  const { data: driftEvents, isLoading: isLoadingDrift, refetch: refetchDrift } = useDriftData(modelId, 7);
+  const { data: driftEvents, refetch: refetchDrift } = useDriftData(modelId, 7);
+
+  interface ThresholdHistoryPoint {
+    timestamp?: string;
+    score: number;
+    ewma_mean?: number;
+    ewma_threshold: number;
+  }
+
+  interface Threshold {
+    id: number;
+    detector: string;
+    metric_name: string | null;
+    ewma_threshold: number;
+    ewma_mean?: number;
+    ewma_std?: number;
+    history?: ThresholdHistoryPoint[];
+    stl_decomposition?: {
+      trend: number[];
+      seasonal: number[];
+      residual: number[];
+    } | null;
+  }
 
   // Thresholds state
-  const [thresholds, setThresholds] = useState<any[]>([]);
+  const [thresholds, setThresholds] = useState<Threshold[]>([]);
   const [isLoadingThresholds, setIsLoadingThresholds] = useState(false);
 
   // Upload baseline files state
@@ -45,6 +66,22 @@ export default function ModelDetail() {
   // Manual check trigger state
   const [isChecking, setIsChecking] = useState(false);
 
+  const fetchModelDetail = useCallback(async () => {
+    if (!modelId) return;
+    setIsLoadingModel(true);
+    setModelError(null);
+    try {
+      const response = await client.get(`/api/models/${modelId}`);
+      setModel(response.data);
+    } catch (err) {
+      console.error('Failed to load model details:', err);
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load model details';
+      setModelError(errorMsg);
+    } finally {
+      setIsLoadingModel(false);
+    }
+  }, [modelId]);
+
   // Fetch model metadata
   useEffect(() => {
     if (modelId) {
@@ -54,25 +91,10 @@ export default function ModelDetail() {
     return () => {
       setSelectedModelId(null);
     };
-  }, [modelId]);
-
-  const fetchModelDetail = async () => {
-    if (!modelId) return;
-    setIsLoadingModel(true);
-    setModelError(null);
-    try {
-      const response = await client.get(`/api/models/${modelId}`);
-      setModel(response.data);
-    } catch (err: any) {
-      console.error('Failed to load model details:', err);
-      setModelError(err.response?.data?.detail || 'Failed to load model details');
-    } finally {
-      setIsLoadingModel(false);
-    }
-  };
+  }, [modelId, setSelectedModelId, fetchModelDetail]);
 
   // Fetch thresholds history
-  const fetchThresholds = async () => {
+  const fetchThresholds = useCallback(async () => {
     if (!modelId) return;
     setIsLoadingThresholds(true);
     try {
@@ -83,13 +105,13 @@ export default function ModelDetail() {
     } finally {
       setIsLoadingThresholds(false);
     }
-  };
+  }, [modelId]);
 
   useEffect(() => {
     if (activeTab === 'drift' || activeTab === 'thresholds' || activeTab === 'stl') {
       fetchThresholds();
     }
-  }, [activeTab, modelId]);
+  }, [activeTab, fetchThresholds]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -115,9 +137,10 @@ export default function ModelDetail() {
       });
       setUploadSuccess('Baseline dataset successfully uploaded and processed!');
       setSelectedFile(null);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Baseline upload failed:', err);
-      alert(err.response?.data?.detail || 'Failed to upload baseline');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to upload baseline';
+      alert(errorMsg);
     } finally {
       setIsUploading(false);
     }
@@ -132,9 +155,10 @@ export default function ModelDetail() {
       setTimeout(() => {
         refetchDrift();
       }, 3000);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Drift check trigger failed:', err);
-      alert(err.response?.data?.detail || 'Failed to trigger drift check');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to trigger drift check';
+      alert(errorMsg);
     } finally {
       setIsChecking(false);
     }
@@ -163,7 +187,7 @@ export default function ModelDetail() {
   // Prep PSI chart data
   // Extract psi detector history
   const psiThreshold = thresholds.find((t) => t.detector === 'psi');
-  const psiChartPoints = psiThreshold?.history?.map((h: any) => ({
+  const psiChartPoints = psiThreshold?.history?.map((h) => ({
     timestamp: h.timestamp || new Date().toISOString(),
     score: h.score,
     ewma_mean: h.ewma_mean,
@@ -172,7 +196,8 @@ export default function ModelDetail() {
 
   // Get latest event with SHAP attribution
   const shapEvent = driftEvents.find((e) => e.shap_attribution !== null);
-  const shapTopMovers = shapEvent?.shap_attribution?.top_movers || [];
+  const shapAttribution = shapEvent?.shap_attribution as { top_movers?: [string, number][] } | null | undefined;
+  const shapTopMovers: [string, number][] = shapAttribution?.top_movers || [];
 
   // STL select
   const stlThreshold = thresholds.find((t) => t.stl_decomposition !== null);
@@ -290,7 +315,7 @@ export default function ModelDetail() {
           </div>
           {stlThreshold?.stl_decomposition ? (
             <STLDecomposition
-              scoreHistory={stlThreshold.history?.map((h: any) => h.score) || []}
+              scoreHistory={stlThreshold.history?.map((h) => h.score) || []}
               trend={stlThreshold.stl_decomposition.trend || []}
               seasonal={stlThreshold.stl_decomposition.seasonal || []}
               residual={stlThreshold.stl_decomposition.residual || []}

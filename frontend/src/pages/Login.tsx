@@ -41,9 +41,10 @@ export default function Login() {
 
       setAuth(access_token, userResponse.data);
       navigate('/');
-    } catch (err: any) {
+    } catch (err) {
       console.error('Login failed:', err);
-      setError(err.response?.data?.detail || 'Invalid email or password');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Invalid email or password';
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }

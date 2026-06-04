@@ -12,7 +12,7 @@ export interface Model {
   version: string;
   task_type: string;
   status: 'active' | 'archived' | 'deprecated';
-  config_json?: Record<string, any>;
+  config_json?: Record<string, unknown>;
 }
 
 export interface DriftEvent {
@@ -24,7 +24,7 @@ export interface DriftEvent {
   threshold: number;
   drift_type: string | null;
   severity: 'warn' | 'critical' | 'info';
-  shap_attribution: Record<string, any> | null;
+  shap_attribution: Record<string, unknown> | null;
   detected_at: string;
 }
 

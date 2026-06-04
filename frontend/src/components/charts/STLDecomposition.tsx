@@ -41,7 +41,14 @@ export default function STLDecomposition({
     residual: residual[residual.length - minLength + idx],
   }));
 
-  const renderPanel = (title: string, dataKey: string, strokeColor: string, fillGrad: string) => {
+  const renderPanel = (title: string, dataKey: string, strokeColor: string, _fillGrad: string) => {
+    interface CustomTooltipProps {
+      active?: boolean;
+      payload?: Array<{
+        value?: number;
+      }>;
+    }
+
     return (
       <div className="flex flex-col space-y-1">
         <div className="flex items-center justify-between px-2">
@@ -54,7 +61,7 @@ export default function STLDecomposition({
               <XAxis dataKey="index" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} />
               <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
               <Tooltip
-                content={({ active, payload }: any) => {
+                content={({ active, payload }: CustomTooltipProps) => {
                   if (active && payload && payload.length) {
                     const colors: Record<string, string> = {
                       '#3b82f6': 'text-blue-400',
@@ -66,7 +73,7 @@ export default function STLDecomposition({
                     return (
                       <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 px-2 py-1.5 rounded-md shadow-lg text-[10px]">
                         <p className={`font-semibold ${colorClass}`}>
-                          {title}: {payload[0].value.toFixed(5)}
+                          {title}: {payload[0].value !== undefined ? payload[0].value.toFixed(5) : 'N/A'}
                         </p>
                       </div>
                     );

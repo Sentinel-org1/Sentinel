@@ -3,7 +3,6 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -23,6 +22,15 @@ interface PSITimeSeriesProps {
   data: PSIPoint[];
 }
 
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    name: string;
+    value: number;
+  }>;
+  label?: string;
+}
+
 export default function PSITimeSeries({ data }: PSITimeSeriesProps) {
   // Format timestamps to reader-friendly dates
   const formattedData = data.map((d) => ({
@@ -35,12 +43,12 @@ export default function PSITimeSeries({ data }: PSITimeSeriesProps) {
     }),
   }));
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
     if (active && payload && payload.length) {
       return (
         <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 p-3 rounded-lg shadow-xl text-xs space-y-1">
           <p className="text-slate-400 font-medium">{label}</p>
-          {payload.map((p: any, idx: number) => {
+          {payload.map((p, idx: number) => {
             const colors: Record<string, string> = {
               'PSI Score': 'text-blue-400',
               'Adaptive Threshold (EWMA)': 'text-amber-400',

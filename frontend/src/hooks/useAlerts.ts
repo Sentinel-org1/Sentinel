@@ -18,9 +18,10 @@ export default function useAlerts(modelId?: number | null) {
         params: modelId ? { model_id: modelId } : undefined,
       });
       setAlerts(response.data.alerts);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to fetch alerts:', err);
-      setError(err.response?.data?.detail || 'Failed to load alerts');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load alerts';
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }

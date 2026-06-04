@@ -9,7 +9,20 @@ import Spinner from '../components/ui/Spinner';
 export default function Calibration() {
   const models = useStore((state) => state.models);
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
-  const [calibrationData, setCalibrationData] = useState<any | null>(null);
+  interface CalibrationPoint {
+    threshold: number;
+    tp_rate: number;
+    fp_rate: number;
+    youden_j: number;
+  }
+
+  interface CalibrationData {
+    points: CalibrationPoint[];
+    optimal_threshold: number;
+    auc: number;
+  }
+
+  const [calibrationData, setCalibrationData] = useState<CalibrationData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,9 +40,10 @@ export default function Calibration() {
     try {
       const response = await client.get(`/api/models/${modelId}/calibration`);
       setCalibrationData(response.data);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to fetch calibration curve:', err);
-      setError(err.response?.data?.detail || 'Failed to load calibration data');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load calibration data';
+      setError(errorMsg);
       setCalibrationData(null);
     } finally {
       setIsLoading(false);
@@ -50,9 +64,10 @@ export default function Calibration() {
       const response = await client.post(`/api/models/${selectedModelId}/calibration`);
       setCalibrationData(response.data);
       alert('Calibration report generated and saved successfully.');
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to generate calibration:', err);
-      setError(err.response?.data?.detail || 'Failed to generate calibration curve');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to generate calibration curve';
+      setError(errorMsg);
     } finally {
       setIsGenerating(false);
     }

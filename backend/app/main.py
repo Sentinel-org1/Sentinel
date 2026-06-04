@@ -85,7 +85,7 @@ async def health_check():
 
 
 # ── Routers ───────────────────────────────────────────────────
-from app.routers import auth, models, predictions, drift, alerts, calibration, websocket
+from app.routers import auth, models, predictions, drift, alerts, calibration, websocket, inference
 
 app.include_router(auth.router,         prefix="/auth",              tags=["auth"])
 app.include_router(models.router,       prefix="/api/models",        tags=["models"])
@@ -93,4 +93,5 @@ app.include_router(predictions.router,  prefix="/api/predictions",   tags=["pred
 app.include_router(drift.router,        prefix="/api/drift",         tags=["drift"])
 app.include_router(alerts.router,       prefix="/api/alerts",        tags=["alerts"])
 app.include_router(calibration.router,  prefix="/api/models",        tags=["calibration"])
+app.include_router(inference.router,    prefix="/api/models",        tags=["inference"])
 app.include_router(websocket.router,                                  tags=["realtime"])

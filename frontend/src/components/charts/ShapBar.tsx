@@ -29,7 +29,17 @@ export default function ShapBar({ topMovers }: ShapBarProps) {
     value: val,
   }));
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  interface CustomTooltipProps {
+    active?: boolean;
+    payload?: Array<{
+      value: number;
+      payload: {
+        name: string;
+      };
+    }>;
+  }
+
+  const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
     if (active && payload && payload.length) {
       const val = payload[0].value;
       const isPositive = val >= 0;

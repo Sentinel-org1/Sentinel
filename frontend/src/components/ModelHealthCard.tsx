@@ -2,7 +2,6 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Model, DriftEvent, Alert } from '../store';
 import Card from './ui/Card';
-import Badge from './ui/Badge';
 
 interface ModelHealthCardProps {
   model: Model;

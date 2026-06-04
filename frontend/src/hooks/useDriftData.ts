@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import client from '../api/client';
-import { useStore, DriftEvent } from '../store';
+import { useStore } from '../store';
 
 export default function useDriftData(modelId: number | null, days = 7) {
   const setDriftEvents = useStore((state) => state.setDriftEvents);
@@ -23,9 +23,10 @@ export default function useDriftData(modelId: number | null, days = 7) {
         },
       });
       setDriftEvents(response.data.events);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to fetch drift events:', err);
-      setError(err.response?.data?.detail || 'Failed to load drift events');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load drift events';
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
