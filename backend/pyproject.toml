@@ -30,6 +30,9 @@ dependencies = [
   "asyncpg==0.29.0",
   "python-multipart==0.0.9",
   "bcrypt==3.2.2",
+  "prometheus-client>=0.20.0",
+  "prometheus-fastapi-instrumentator>=6.1.0",
+  "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]

@@ -7,7 +7,7 @@ Authentication endpoints:
   POST /auth/logout   → clears refresh cookie
   GET  /auth/me       → current user info
 """
-from __future__ import annotations
+
 
 from datetime import timedelta
 
@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.services.auth_service import auth_service
+from app.core.rate_limit import limiter, AUTH_LIMIT
 
 router = APIRouter()
 
@@ -46,9 +47,11 @@ class UserResponse(BaseModel):
     response_model=TokenResponse,
     summary="Login and receive JWT tokens",
 )
+@limiter.limit(AUTH_LIMIT)
 async def login(
+    request: Request,
     response: Response,
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    form_data: OAuth2PasswordRequestForm = Depends(OAuth2PasswordRequestForm),
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """

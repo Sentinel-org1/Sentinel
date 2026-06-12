@@ -1,0 +1,15 @@
+# Grafana auto-provisioned datasource for Prometheus
+# Loaded on first boot via Grafana provisioning system.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: '5s'
+      httpMethod: POST

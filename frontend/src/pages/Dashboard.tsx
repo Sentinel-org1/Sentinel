@@ -59,20 +59,42 @@ export default function Dashboard() {
     fetchModels();
   }, [setModels, setModelsLoading, setModelsError]);
 
-  // Load all drift events to show in the global overview timeline
+  // Load all drift events to show in the global overview timeline, ensuring latest events for all models are loaded
   useEffect(() => {
+    if (models.length === 0) return;
+
     async function fetchAllDriftEvents() {
       try {
         const response = await client.get('/api/drift/', {
           params: { days: 7, limit: 50 },
         });
-        setDriftEvents(response.data.events);
+        const events = [...response.data.events];
+
+        // Fetch the single latest drift event for each model to ensure they are present
+        const latestEventsPromises = models.map((m) =>
+          client.get('/api/drift/', {
+            params: { model_id: m.id, limit: 1 },
+          })
+        );
+        const latestEventsResponses = await Promise.all(latestEventsPromises);
+        
+        latestEventsResponses.forEach((res) => {
+          if (res.data.events && res.data.events.length > 0) {
+            events.push(res.data.events[0]);
+          }
+        });
+
+        // Deduplicate by ID
+        const uniqueEventsMap = new Map();
+        events.forEach((e) => uniqueEventsMap.set(e.id, e));
+
+        setDriftEvents(Array.from(uniqueEventsMap.values()));
       } catch (err) {
         console.error('Failed to fetch all drift events:', err);
       }
     }
     fetchAllDriftEvents();
-  }, [setDriftEvents]);
+  }, [models, setDriftEvents]);
 
   if (isLoadingModels || isLoadingAlerts) {
     return (
@@ -98,7 +120,7 @@ export default function Dashboard() {
   const wsDisplayInfo = {
     connected: { label: 'CONNECTED', color: 'text-emerald-450', bg: 'bg-emerald-500/10', border: 'border-emerald-500/25' },
     connecting: { label: 'CONNECTING', color: 'text-amber-450', bg: 'bg-amber-500/10', border: 'border-amber-500/25' },
-    disconnected: { label: 'OFFLINE', color: 'text-slate-450', bg: 'bg-slate-500/10', border: 'border-slate-500/25' },
+    disconnected: { label: 'OFFLINE', color: 'text-rose-450', bg: 'bg-rose-500/10', border: 'border-rose-500/25' },
   }[wsStatus];
 
   return (
@@ -116,11 +138,11 @@ export default function Dashboard() {
       {/* Grid Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {/* Stat 1 */}
-        <Card hoverEffect={false} className="bg-slate-900/40 relative overflow-hidden">
+        <Card hoverEffect={false} className="bg-slate-900/40 relative overflow-hidden transition-all duration-300 hover:scale-[1.015] hover:shadow-[0_0_20px_rgba(34,211,238,0.12)] hover:border-cyan-500/25 border-slate-800/60">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Registered Models</p>
-              <h3 className="text-2xl font-black text-slate-150 mt-1">{models.length}</h3>
+              <h3 className="text-2xl font-black text-slate-150 mt-1 font-mono tracking-wide">{models.length}</h3>
             </div>
             <div className="p-2 bg-blue-500/10 rounded-lg text-blue-450 border border-blue-500/25">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -131,11 +153,11 @@ export default function Dashboard() {
         </Card>
 
         {/* Stat 2 */}
-        <Card hoverEffect={false} className="bg-slate-900/40 relative overflow-hidden">
+        <Card hoverEffect={false} className="bg-slate-900/40 relative overflow-hidden transition-all duration-300 hover:scale-[1.015] hover:shadow-[0_0_20px_rgba(251,191,36,0.12)] hover:border-amber-500/25 border-slate-800/60">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Active Alerts</p>
-              <h3 className="text-2xl font-black text-amber-450 mt-1">{activeAlerts.length}</h3>
+              <h3 className="text-2xl font-black text-amber-450 mt-1 font-mono tracking-wide">{activeAlerts.length}</h3>
             </div>
             <div className="p-2 bg-amber-500/10 rounded-lg text-amber-450 border border-amber-500/25">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -146,11 +168,11 @@ export default function Dashboard() {
         </Card>
 
         {/* Stat 3 */}
-        <Card hoverEffect={false} className="bg-slate-900/40 relative overflow-hidden">
+        <Card hoverEffect={false} className="bg-slate-900/40 relative overflow-hidden transition-all duration-300 hover:scale-[1.015] hover:shadow-[0_0_20px_rgba(244,63,94,0.12)] hover:border-rose-500/25 border-slate-800/60">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Critical Failures</p>
-              <h3 className="text-2xl font-black text-rose-450 mt-1">{criticalAlertsCount}</h3>
+              <h3 className="text-2xl font-black text-rose-450 mt-1 font-mono tracking-wide">{criticalAlertsCount}</h3>
             </div>
             <div className="p-2 bg-rose-500/10 rounded-lg text-rose-450 border border-rose-500/25">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -161,16 +183,30 @@ export default function Dashboard() {
         </Card>
 
         {/* Stat 4 — Live WebSocket Status */}
-        <Card hoverEffect={false} className="bg-slate-900/40 relative overflow-hidden">
+        <Card hoverEffect={false} className={`bg-slate-900/40 relative overflow-hidden transition-all duration-300 hover:scale-[1.015] border-slate-800/60 ${
+          wsStatus === 'connected' 
+            ? 'hover:shadow-[0_0_20px_rgba(16,185,129,0.12)] hover:border-emerald-500/25' 
+            : 'hover:shadow-[0_0_20px_rgba(244,63,94,0.12)] hover:border-rose-500/25'
+        }`}>
           <div className="flex justify-between items-start">
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">WebSocket Streams</p>
-              <h3 className={`text-2xl font-black mt-1 ${wsDisplayInfo.color}`}>{wsDisplayInfo.label}</h3>
+              <h3 className={`text-2xl font-black mt-1 font-mono tracking-wide ${wsDisplayInfo.color}`}>{wsDisplayInfo.label}</h3>
             </div>
             <div className={`p-2 ${wsDisplayInfo.bg} rounded-lg ${wsDisplayInfo.color} border ${wsDisplayInfo.border}`}>
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071a9 9 0 0112.138 0M2.05 8.05a13.6 13.6 0 0119.9 0" />
-              </svg>
+              {wsStatus === 'disconnected' ? (
+                <svg className="w-5 h-5 animate-bounce" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 10h3v4H5z" />
+                  <path d="M8 12h3" />
+                  <path d="M16 10h3v4h-3z" />
+                  <path d="M13 12h3" />
+                  <path stroke="#f43f5e" strokeWidth="2.5" d="M11 8l2 8" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071a9 9 0 0112.138 0M2.05 8.05a13.6 13.6 0 0119.9 0" />
+                </svg>
+              )}
             </div>
           </div>
         </Card>

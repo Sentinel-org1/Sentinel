@@ -7,14 +7,23 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from app.config import settings
+from app.core.rate_limit import limiter
 from app.middleware.auth_middleware import AuthMiddleware
 from app.middleware.logging_middleware import LoggingMiddleware
+
+# Import custom metrics so they are registered in the default prometheus registry
+import app.core.metrics  # noqa: F401
+
 
 
 @asynccontextmanager
@@ -36,6 +45,8 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
+API_VERSION = "0.1.0"
+
 app = FastAPI(
     title="Sentinel API",
     description="""
@@ -55,11 +66,22 @@ Obtain a token via `POST /auth/login`.
 - **STL decomposition** — seasonal noise suppression
 - **Calibration curves** — data-driven threshold selection
 """,
-    version="0.1.0",
+    version=API_VERSION,
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# ── Prometheus auto-instrumentation ───────────────────────────
+Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=True,
+    excluded_handlers=["/health", "/docs", "/redoc", "/openapi.json"],
+).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
+# ── Rate limiting state and handler registration ──────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Middleware (applied outermost-first) ──────────────────────
 # 1. CORS — must be first so pre-flight OPTIONS requests pass through
@@ -81,7 +103,7 @@ app.add_middleware(AuthMiddleware)
 # ── Health check (no auth required) ──────────────────────────
 @app.get("/health", tags=["ops"], include_in_schema=False)
 async def health_check():
-    return {"status": "ok", "version": app.version}
+    return {"status": "ok", "version": API_VERSION}
 
 
 # ── Routers ───────────────────────────────────────────────────

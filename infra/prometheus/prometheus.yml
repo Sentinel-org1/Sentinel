@@ -1,0 +1,15 @@
+# Sentinel Prometheus Configuration
+# Scrapes the FastAPI backend for both auto-instrumented HTTP metrics
+# and custom ML observability counters/histograms.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'sentinel-backend'
+    # Inside Docker Compose, the backend service is reachable at this hostname
+    static_configs:
+      - targets: ['backend:8000']
+    metrics_path: '/metrics'
+    scrape_timeout: 5s

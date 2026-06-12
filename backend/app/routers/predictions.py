@@ -10,7 +10,7 @@ Flow:
   4. Celery task enqueued if batch_size ≥ 500 OR 60 s elapsed (handled by consumer)
   5. Return ingestion summary
 """
-from __future__ import annotations
+
 
 import time
 from collections import defaultdict
@@ -24,6 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.prediction import Prediction
 from app.redis_client import get_redis
+from app.core.metrics import PREDICTIONS_INGESTED
+from app.core.rate_limit import limiter, INGEST_LIMIT
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -72,7 +74,9 @@ def current_user_id(request: Request) -> int:
     status_code=status.HTTP_200_OK,
     summary="Bulk ingest model predictions",
 )
+@limiter.limit(INGEST_LIMIT)
 async def ingest_predictions(
+    request: Request,
     body: IngestRequest,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(current_user_id),
@@ -135,6 +139,9 @@ async def ingest_predictions(
     except Exception as exc:
         await db.rollback()
         logger.exception("prediction_ingest_failed", error=str(exc), user_id=user_id)
+        # Record failed ingestion in Prometheus
+        for model_id_fail, items_fail in by_model.items():
+            PREDICTIONS_INGESTED.labels(model_id=str(model_id_fail), status="failure").inc(len(items_fail))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Prediction ingest failed before commit",
@@ -154,6 +161,11 @@ async def ingest_predictions(
             logger.info("drift_check_enqueued", model_id=model_id, stream_len=after_len)
 
     duration_ms = (time.perf_counter() - t0) * 1000
+
+    # Record successful ingestion in Prometheus
+    for model_id_ok, items_ok in by_model.items():
+        PREDICTIONS_INGESTED.labels(model_id=str(model_id_ok), status="success").inc(len(items_ok))
+
     logger.info(
         "predictions_ingested",
         count=len(rows),

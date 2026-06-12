@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.alert import Alert
 from app.models.drift_event import DriftEvent
 from app.config import settings
+from app.core.metrics import DRIFT_EVENTS, ALERT_RESOLUTION_SECONDS
 
 logger = structlog.get_logger()
 
@@ -140,6 +141,13 @@ class AlertService:
         await db.commit()
         await db.refresh(alert)
 
+        # Record drift event in Prometheus
+        DRIFT_EVENTS.labels(
+            model_id=str(model_id),
+            detector=drift_event.detector,
+            severity=severity,
+        ).inc()
+
         logger.info(
             "alert_created",
             alert_id=alert.id,
@@ -211,7 +219,19 @@ class AlertService:
         await db.commit()
         await db.refresh(alert)
 
-        logger.info("alert_resolved", alert_id=alert_id, resolution=resolution)
+        # Record resolution latency in Prometheus
+        resolution_seconds = (alert.updated_at - alert.created_at).total_seconds()
+        ALERT_RESOLUTION_SECONDS.labels(
+            model_id=str(alert.model_id),
+            severity=alert.severity,
+        ).observe(resolution_seconds)
+
+        logger.info(
+            "alert_resolved",
+            alert_id=alert_id,
+            resolution=resolution,
+            resolution_seconds=round(resolution_seconds, 1),
+        )
         return alert
 
     @staticmethod
